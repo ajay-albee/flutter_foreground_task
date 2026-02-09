@@ -214,16 +214,26 @@ class ForegroundService : Service() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
         if (ForegroundServiceUtils.isSetStopWithTaskFlag(this)) {
-            // Block thread to allow Flutter isolate to save data (e.g., audio recordings)
-            // While this method is executing, Android won't terminate the process
-            // 5 seconds is plenty for most finalization operations (~1 second actual)
-            // Handler.postDelayed doesn't work - Android kills process after method returns
-            try {
-                Thread.sleep(5000)
-            } catch (e: InterruptedException) {
-                // Interrupted, proceed with stop
-            }
-            stopSelf()
+            // Use BACKGROUND THREAD to delay stopSelf - keeps process alive while
+            // keeping main thread FREE for Flutter async operations (recorder.stop()).
+            //
+            // Why this works:
+            // - Service stays running while stopSelf hasn't been called
+            // - Android won't kill the process while service is running
+            // - Main thread stays unblocked so Flutter can complete async saves
+            // - After 5 seconds, stopSelf is called from background thread
+            //
+            // Previous attempts that failed:
+            // - Handler.postDelayed: Process killed immediately after onTaskRemoved returns
+            // - Thread.sleep on main: Blocks Flutter async operations (recorder.stop can't complete)
+            Thread {
+                try {
+                    Thread.sleep(5000)
+                } catch (e: InterruptedException) {
+                    // Interrupted, proceed with stop
+                }
+                stopSelf()
+            }.start()
         } else {
             RestartReceiver.setRestartAlarm(this, 1000)
         }

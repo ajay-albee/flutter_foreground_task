@@ -214,12 +214,16 @@ class ForegroundService : Service() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
         if (ForegroundServiceUtils.isSetStopWithTaskFlag(this)) {
-            // Delay stopSelf to allow Flutter isolate to save data (e.g., audio recordings)
+            // Block thread to allow Flutter isolate to save data (e.g., audio recordings)
+            // While this method is executing, Android won't terminate the process
             // 5 seconds is plenty for most finalization operations (~1 second actual)
-            // Without this delay, the process terminates before emergency save can complete
-            Handler(Looper.getMainLooper()).postDelayed({
-                stopSelf()
-            }, 5000)
+            // Handler.postDelayed doesn't work - Android kills process after method returns
+            try {
+                Thread.sleep(5000)
+            } catch (e: InterruptedException) {
+                // Interrupted, proceed with stop
+            }
+            stopSelf()
         } else {
             RestartReceiver.setRestartAlarm(this, 1000)
         }
